@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 
+//TODO: When the controller stops, Dstores should stop as well
 public class Dstore {
     public static void main(String[] args) {
         int port = Integer.parseInt(args[0]);
@@ -35,12 +36,28 @@ public class Dstore {
                             new Thread(new Runnable() {
                                 public void run() {
                                     try {
-                                        BufferedReader inCl = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                                        BufferedReader inCl = new BufferedReader(
+                                                new InputStreamReader(client.getInputStream()));
                                         PrintWriter outCl = new PrintWriter(client.getOutputStream(), true);
 
                                         String line;
                                         while ((line = inCl.readLine()) != null) {
-                                            System.out.println(line);
+                                            System.out.println("Command: " + line);
+                                            if (line.contains("STORE ")) {
+                                                String[] attr = line.split(" ");
+                                                String filename = attr[1];
+                                                String filesize = attr[2]; //TODO: Figure out what this is for
+                                                outCl.println("ACK");
+                                                InputStream fInput = client.getInputStream();
+                                                File outputFile = new File(file_folder, filename);
+                                                FileOutputStream fOut = new FileOutputStream(outputFile);
+                                                byte[] buffer = new byte[1024];
+                                                if ((buffer = fInput.readNBytes(1024)).length != 0) {
+                                                    System.out.println("*");
+                                                    fOut.write(buffer);
+                                                }
+                                                fOut.close();
+                                            }
                                         }
                                     } catch (Exception e) {
                                         e.printStackTrace();
@@ -53,7 +70,7 @@ public class Dstore {
                     }
                 }
             }).start();
-            
+
             String line;
             while ((line = in.readLine()) != null) {
                 System.out.println("Received from controller: " + line);
@@ -62,7 +79,6 @@ public class Dstore {
                     out.println("LIST " + filenames);
                 }
             }
-
 
         } catch (Exception e) {
             e.printStackTrace();
