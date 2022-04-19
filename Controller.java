@@ -3,6 +3,7 @@ import java.net.*;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Controller
@@ -23,6 +24,8 @@ public class Controller {
         ServerSocket ss = null;
         try {
             ss = new ServerSocket(cport);
+
+            ArrayList<CountDownLatch> storeLatch = new ArrayList<CountDownLatch>();
 
             while (true) {
                 System.out.println("Waiting for connection request...");
@@ -62,20 +65,32 @@ public class Controller {
                                     System.out.println("List files requested: " + listFiles());
                                     out.println("LIST " + listFiles());
                                 } else if (line.contains("STORE ")) {
+                                    storeLatch.clear();
+                                    storeLatch.add(new CountDownLatch(repFactor));
                                     String[] attr = line.split(" ");
                                     String fileName = attr[1];
                                     int fileSize = Integer.parseInt(attr[2]);
                                     ArrayList<DstoreObject> dS = new ArrayList<DstoreObject>();
                                     String toClient = "STORE_TO ";
                                     for (int i = 0; i < repFactor; i++) {
-                                        DstoreObject obj = dstores.get(i); // TODO: I want to select random Dstores, may
-                                                                           // implement later
+                                        DstoreObject obj = dstores.get(i); // TODO: I want to select random Dstores, may implement later
                                         dS.add(obj);
                                         toClient += obj.port + " ";
                                     }
                                     index.add(new Index(fileName, fileSize, "store in progress”", dS));
                                     out.println(toClient.stripTrailing());
                                     System.out.println(toClient.stripTrailing());
+                                    storeLatch.get(0).await();
+                                    for (Index file : index) {
+                                        if (file.filename.equals(fileName)) {
+                                            file.lifecycle = "store complete";
+                                        }
+                                    }
+                                    System.out.println("STORE_COMPLETE for file " + fileName);
+                                    out.println("STORE_COMPLETE");
+                                } else if (line.contains("STORE_ACK ")) {
+                                    storeLatch.get(0).countDown();
+                                    System.out.println("Latch count: " + storeLatch.get(0).getCount());
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects
@@ -112,7 +127,7 @@ public class Controller {
     private static String listFiles() {
         String result = "";
         for (Index file : index) {
-            if (file.lifecycle.equals("available")) {
+            if (file.lifecycle.equals("store complete")) {
                 result += file.filename + " ";
             }
         }

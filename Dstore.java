@@ -56,6 +56,7 @@ public class Dstore {
                                                     System.out.println("*");
                                                     fOut.write(buffer);
                                                 }
+                                                out.println("STORE_ACK " + filename);
                                                 fOut.close();
                                             }
                                         }
