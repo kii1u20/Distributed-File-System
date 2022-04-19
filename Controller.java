@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Random;
 
 /**
  * Controller
@@ -44,39 +45,53 @@ public class Controller {
                                 if (line.contains("JOIN")) {
                                     int dPort = Integer.parseInt(line.split(" ")[1]);
                                     dstores.add((DstoreObj = new DstoreObject(client, dPort)));
-                                    out.println("LIST");
-                                    line = inStr.readLine();
-                                    System.out.println("Dstore files: " + line);
-                                    if (line.contains("LIST")) {
-                                        line = line.replace("LIST ", "");
-                                        String[] files = line.split(" ");
-                                        for (String file : files) {
-                                            index.add(new Index(file, "available", DstoreObj));
-                                            System.out.println("Added " + file + " to the index");
-                                        }
-                                    }
-                                }
-                                if (dstores.size() < repFactor) {
+                                    System.out.println("Dstore joined the system on port " + client.getPort());
+                                    // } else if (line.contains("LIST ")) {
+                                    // line = line.replace("LIST ", "");
+                                    // System.out.println("Dstore files: " + line);
+                                    // String[] files = line.split(" ");
+                                    // for (String file : files) {
+                                    // index.add(new Index(file, "available", DstoreObj));
+                                    // System.out.println("Added " + file + " to the index");
+                                    // }
+                                } else if (dstores.size() < repFactor) {
+                                    out.println("ERROR_NOT_ENOUGH_DSTORES");
+                                    System.out.println("ERROR_NOT_ENOUGH_DSTORES");
                                     continue;
-                                }
-                                if (line.equals("LIST")) {
+                                } else if (line.equals("LIST")) {
                                     System.out.println("List files requested: " + listFiles());
                                     out.println("LIST " + listFiles());
+                                } else if (line.contains("STORE ")) {
+                                    String[] attr = line.split(" ");
+                                    String fileName = attr[1];
+                                    int fileSize = Integer.parseInt(attr[2]);
+                                    ArrayList<DstoreObject> dS = new ArrayList<DstoreObject>();
+                                    String toClient = "STORE_TO ";
+                                    for (int i = 0; i < repFactor; i++) {
+                                        DstoreObject obj = dstores.get(i); // TODO: I want to select random Dstores, may
+                                                                           // implement later
+                                        dS.add(obj);
+                                        toClient += obj.port + " ";
+                                    }
+                                    index.add(new Index(fileName, fileSize, "store in progress”", dS));
+                                    out.println(toClient.stripTrailing());
+                                    System.out.println(toClient.stripTrailing());
                                 }
-                                System.out.println("If there are enough dstores continue");
                             }
-                            // May be issue, don't know how java sockets work
+                            // if a Dstore disconnects or a client disconnects
                             client.close();
                             if (DstoreObj != null) {
                                 dstores.remove(DstoreObj);
-                                System.out.println("Removed " + DstoreObj.port + " because it disconnected");
+                                System.out.println("Removed Dstore on port " + DstoreObj.port + " because it disconnected");
                                 Iterator<Index> itr = index.iterator();
-                                while (itr.hasNext()) {
+                                while (itr.hasNext()) { // TODO: May not need to remove store in progress files, CHECK!
                                     Index file = itr.next();
-                                    if (file.dStore == DstoreObj) {
+                                    if (file.dStore.contains(DstoreObj) && file.dStore.size() == 1) {
                                         itr.remove();
                                         System.out.println("Removed " + file.filename
                                                 + " from the index because it's Dstore disconnected");
+                                    } else if (file.dStore.contains(DstoreObj)) {
+                                        file.dStore.remove(DstoreObj);
                                     }
                                 }
                             } else {
@@ -108,10 +123,12 @@ public class Controller {
 class Index {
     public String filename;
     public String lifecycle;
-    public DstoreObject dStore;
+    public ArrayList<DstoreObject> dStore;
+    public int filesize;
 
-    public Index(String filename, String lifecycle, DstoreObject dStore) {
+    public Index(String filename, int filesize, String lifecycle, ArrayList<DstoreObject> dStore) {
         this.filename = filename;
+        this.filesize = filesize;
         this.lifecycle = lifecycle;
         this.dStore = dStore;
     }

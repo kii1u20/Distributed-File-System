@@ -11,33 +11,58 @@ public class Dstore {
                 cport + ", " + "timeout: " + timeout + ", " + "files folder: " + file_folder);
 
         Socket server = null;
-        ServerSocket ss = null;
+        // ServerSocket ss = null;
         try {
             server = new Socket(InetAddress.getLocalHost(), cport);
-            ss = new ServerSocket(port);
+            ServerSocket ss = new ServerSocket(port);
 
             File folder = new File(file_folder);
             if (!folder.exists()) {
-                folder.mkdir(); //TODO: if false display "ERROR cannot create Dstore directory"
+                folder.mkdir(); // TODO: if false display "ERROR cannot create Dstore directory"
             }
+            emptyFolder(folder);
 
             PrintWriter out = new PrintWriter(server.getOutputStream(), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(server.getInputStream()));
-            
+
             out.println("JOIN " + port);
 
-            // final Socket client = ss.accept();
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        while (true) {
+                            final Socket client = ss.accept();
+                            new Thread(new Runnable() {
+                                public void run() {
+                                    try {
+                                        BufferedReader inCl = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                                        PrintWriter outCl = new PrintWriter(client.getOutputStream(), true);
 
-            String line;
-            while (true) {
-                while ((line = in.readLine()) != null) {
-                    System.out.println("Received from controller: " + line);
-                    if (line.equals("LIST")) {
-                        String filenames = getFileNames(folder);
-                        out.println("LIST " + filenames);
+                                        String line;
+                                        while ((line = inCl.readLine()) != null) {
+                                            System.out.println(line);
+                                        }
+                                    } catch (Exception e) {
+                                        e.printStackTrace();
+                                    }
+                                }
+                            }).start();
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
                 }
+            }).start();
+            
+            String line;
+            while ((line = in.readLine()) != null) {
+                System.out.println("Received from controller: " + line);
+                if (line.equals("LIST")) {
+                    String filenames = getFileNames(folder);
+                    out.println("LIST " + filenames);
+                }
             }
+
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -51,5 +76,12 @@ public class Dstore {
             result += file.getName() + " ";
         }
         return result.stripTrailing();
+    }
+
+    private static void emptyFolder(File folder) {
+        File[] files = folder.listFiles();
+        for (File file : files) {
+            file.delete();
+        }
     }
 }
