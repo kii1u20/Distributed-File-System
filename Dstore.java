@@ -3,8 +3,8 @@ import java.net.*;
 
 public class Dstore {
     public static void main(String[] args) {
-        int port = Integer.parseInt(args[1]);
-        int cport = Integer.parseInt(args[0]);
+        int port = Integer.parseInt(args[0]);
+        int cport = Integer.parseInt(args[1]);
         int timeout = Integer.parseInt(args[2]);
         String file_folder = args[3];
         System.out.println("port: " + port + ", " + "controller port: " +
@@ -16,9 +16,19 @@ public class Dstore {
             socket = new Socket(InetAddress.getLocalHost(), cport);
             ss = new ServerSocket(port);
 
-            PrintWriter out = new PrintWriter(socket.getOutputStream());
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             
+            out.println("JOIN " + port);
+
+            // final Socket client = ss.accept();
+
+            String line;
+            while (true) {
+                while ((line = in.readLine()) != null) {
+                    System.out.println("Received from controller: " + line);
+                }
+            }
 
         } catch (Exception e) {
             e.printStackTrace();
