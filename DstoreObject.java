@@ -4,8 +4,8 @@ public class DstoreObject {
     Socket socket;
     int port;
 
-    public DstoreObject (Socket soc, int p) {
-        socket = soc;
-        port = p;
+    public DstoreObject (Socket socket, int port) {
+        this.socket = socket;
+        this.port = port;
     }
 }

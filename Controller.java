@@ -8,6 +8,7 @@ import java.util.ArrayList;
 public class Controller {
 
     public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
+    public static ArrayList<Index> index = new ArrayList<Index>();
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
