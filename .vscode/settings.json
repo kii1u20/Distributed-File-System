@@ -1,0 +1,8 @@
+{
+    "java.project.referencedLibraries": [
+        "lib/**/*.jar",
+        "DstoreObject.jar",
+        "Index.jar",
+        "Containers.jar"
+    ]
+}

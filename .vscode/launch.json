@@ -8,22 +8,23 @@
             "type": "java",
             "name": "Launch Current File",
             "request": "launch",
-            "mainClass": "${file}",
-            "args": "12345 2 5000 1"
+            "mainClass": "${file}"
         },
         {
             "type": "java",
             "name": "Launch Controller",
             "request": "launch",
             "mainClass": "Controller",
-            "projectName": "comp2207_440a9794"
+            "projectName": "comp2207_440a9794",
+            "args": "12345 2 5000 1"
         },
         {
             "type": "java",
             "name": "Launch Dstore",
             "request": "launch",
             "mainClass": "Dstore",
-            "projectName": "comp2207_440a9794"
+            "projectName": "comp2207_440a9794",
+            "args": "54321 12345 2 9000 files"
         }
     ]
 }

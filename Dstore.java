@@ -10,14 +10,19 @@ public class Dstore {
         System.out.println("port: " + port + ", " + "controller port: " +
                 cport + ", " + "timeout: " + timeout + ", " + "files folder: " + file_folder);
 
-        Socket socket = null;
+        Socket server = null;
         ServerSocket ss = null;
         try {
-            socket = new Socket(InetAddress.getLocalHost(), cport);
+            server = new Socket(InetAddress.getLocalHost(), cport);
             ss = new ServerSocket(port);
 
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            File folder = new File(file_folder);
+            if (!folder.exists()) {
+                folder.mkdir(); //TODO: if false display "ERROR cannot create Dstore directory"
+            }
+
+            PrintWriter out = new PrintWriter(server.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(server.getInputStream()));
             
             out.println("JOIN " + port);
 
@@ -27,11 +32,24 @@ public class Dstore {
             while (true) {
                 while ((line = in.readLine()) != null) {
                     System.out.println("Received from controller: " + line);
+                    if (line.contains("LIST")) {
+                        String filenames = getFileNames(folder);
+                        out.println("LIST " + filenames);
+                    }
                 }
             }
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private static String getFileNames(File folder) {
+        File[] listOfFiles = folder.listFiles();
+        String result = "";
+        for (File file : listOfFiles) {
+            result += file.getName() + " ";
+        }
+        return result.stripTrailing();
     }
 }

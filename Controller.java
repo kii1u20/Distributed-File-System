@@ -43,7 +43,7 @@ public class Controller {
                                 if (line.contains("JOIN")) {
                                     int dPort = Integer.parseInt(line.split(" ")[1]);
                                     dstores.add((DstoreObj = new DstoreObject(client, dPort)));
-                                    out.println(dstores.size());
+                                    out.println("LIST");
                                 }
                                 if (dstores.size() < repFactor) {
                                     continue;
@@ -66,4 +66,24 @@ public class Controller {
         }
     }
 
+}
+
+class Index {
+    String filename;
+    String lifecycle;
+
+    public Index(String filename, String lifecycle) {
+        this.filename = filename;
+        this.lifecycle = lifecycle;
+    }
+}
+
+class DstoreObject {
+    Socket socket;
+    int port;
+
+    public DstoreObject (Socket socket, int port) {
+        this.socket = socket;
+        this.port = port;
+    }
 }
