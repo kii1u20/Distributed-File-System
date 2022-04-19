@@ -32,7 +32,7 @@ public class Dstore {
             while (true) {
                 while ((line = in.readLine()) != null) {
                     System.out.println("Received from controller: " + line);
-                    if (line.contains("LIST")) {
+                    if (line.equals("LIST")) {
                         String filenames = getFileNames(folder);
                         out.println("LIST " + filenames);
                     }

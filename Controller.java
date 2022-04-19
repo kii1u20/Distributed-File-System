@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Iterator;
 
 /**
  * Controller
@@ -39,21 +40,48 @@ public class Controller {
                             String line;
                             DstoreObject DstoreObj = null;
                             while ((line = inStr.readLine()) != null) {
-                                System.out.println(line);
+                                System.out.println("Command: " + line);
                                 if (line.contains("JOIN")) {
                                     int dPort = Integer.parseInt(line.split(" ")[1]);
                                     dstores.add((DstoreObj = new DstoreObject(client, dPort)));
                                     out.println("LIST");
+                                    line = inStr.readLine();
+                                    System.out.println("Dstore files: " + line);
+                                    if (line.contains("LIST")) {
+                                        line = line.replace("LIST ", "");
+                                        String[] files = line.split(" ");
+                                        for (String file : files) {
+                                            index.add(new Index(file, "available", DstoreObj));
+                                            System.out.println("Added " + file + " to the index");
+                                        }
+                                    }
                                 }
                                 if (dstores.size() < repFactor) {
                                     continue;
                                 }
-                                System.out.println("If there are enough Dstores only then handle client events");
+                                if (line.equals("LIST")) {
+                                    System.out.println("List files requested: " + listFiles());
+                                    out.println("LIST " + listFiles());
+                                }
+                                System.out.println("If there are enough dstores continue");
                             }
-                            //May be issue, don't know how java sockets work
+                            // May be issue, don't know how java sockets work
                             client.close();
-                            if (DstoreObj != null)
+                            if (DstoreObj != null) {
                                 dstores.remove(DstoreObj);
+                                System.out.println("Removed " + DstoreObj.port + " because it disconnected");
+                                Iterator<Index> itr = index.iterator();
+                                while (itr.hasNext()) {
+                                    Index file = itr.next();
+                                    if (file.dStore == DstoreObj) {
+                                        itr.remove();
+                                        System.out.println("Removed " + file.filename
+                                                + " from the index because it's Dstore disconnected");
+                                    }
+                                }
+                            } else {
+                                System.out.println("Client on port " + client.getPort() + " disconnected");
+                            }
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
@@ -66,23 +94,34 @@ public class Controller {
         }
     }
 
+    private static String listFiles() {
+        String result = "";
+        for (Index file : index) {
+            if (file.lifecycle.equals("available")) {
+                result += file.filename + " ";
+            }
+        }
+        return result.stripTrailing();
+    }
 }
 
 class Index {
-    String filename;
-    String lifecycle;
+    public String filename;
+    public String lifecycle;
+    public DstoreObject dStore;
 
-    public Index(String filename, String lifecycle) {
+    public Index(String filename, String lifecycle, DstoreObject dStore) {
         this.filename = filename;
         this.lifecycle = lifecycle;
+        this.dStore = dStore;
     }
 }
 
 class DstoreObject {
-    Socket socket;
-    int port;
+    public Socket socket;
+    public int port;
 
-    public DstoreObject (Socket socket, int port) {
+    public DstoreObject(Socket socket, int port) {
         this.socket = socket;
         this.port = port;
     }

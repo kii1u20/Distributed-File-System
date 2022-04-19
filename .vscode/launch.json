@@ -24,7 +24,7 @@
             "request": "launch",
             "mainClass": "Dstore",
             "projectName": "comp2207_440a9794",
-            "args": "54321 12345 2 9000 files"
+            "args": "54321 12345 9000 files"
         }
     ]
 }
