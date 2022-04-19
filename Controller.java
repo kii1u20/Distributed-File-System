@@ -2,8 +2,8 @@ import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Controller
@@ -12,6 +12,7 @@ public class Controller {
 
     public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
     public static ArrayList<Index> index = new ArrayList<Index>();
+    static CountDownLatch storeLatch; //TODO: may not work correctly for mutiple clients, need more testing
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
@@ -25,7 +26,7 @@ public class Controller {
         try {
             ss = new ServerSocket(cport);
 
-            ArrayList<CountDownLatch> storeLatch = new ArrayList<CountDownLatch>();
+            // ArrayList<CountDownLatch> storeLatch = new ArrayList<CountDownLatch>(); //TODO: won't work for multiple clients connecting
 
             while (true) {
                 System.out.println("Waiting for connection request...");
@@ -65,11 +66,16 @@ public class Controller {
                                     System.out.println("List files requested: " + listFiles());
                                     out.println("LIST " + listFiles());
                                 } else if (line.contains("STORE ")) {
-                                    storeLatch.clear();
-                                    storeLatch.add(new CountDownLatch(repFactor));
+                                    storeLatch = new CountDownLatch(repFactor);
                                     String[] attr = line.split(" ");
                                     String fileName = attr[1];
                                     int fileSize = Integer.parseInt(attr[2]);
+
+                                    if (checkFileExists(fileName)) {
+                                        out.println("ERROR_FILE_ALREADY_EXISTS");
+                                        continue;
+                                    }
+
                                     ArrayList<DstoreObject> dS = new ArrayList<DstoreObject>();
                                     String toClient = "STORE_TO ";
                                     for (int i = 0; i < repFactor; i++) {
@@ -80,17 +86,20 @@ public class Controller {
                                     index.add(new Index(fileName, fileSize, "store in progress”", dS));
                                     out.println(toClient.stripTrailing());
                                     System.out.println(toClient.stripTrailing());
-                                    storeLatch.get(0).await();
-                                    for (Index file : index) {
-                                        if (file.filename.equals(fileName)) {
-                                            file.lifecycle = "store complete";
+                                    if (!storeLatch.await(30, TimeUnit.SECONDS)) {
+                                        System.err.println("The STORE operation timed out");
+                                    } else {
+                                        for (Index file : index) {
+                                            if (file.filename.equals(fileName)) {
+                                                file.lifecycle = "store complete";
+                                            }
                                         }
+                                        System.out.println("STORE_COMPLETE for file " + fileName);
+                                        out.println("STORE_COMPLETE");
                                     }
-                                    System.out.println("STORE_COMPLETE for file " + fileName);
-                                    out.println("STORE_COMPLETE");
                                 } else if (line.contains("STORE_ACK ")) {
-                                    storeLatch.get(0).countDown();
-                                    System.out.println("Latch count: " + storeLatch.get(0).getCount());
+                                    storeLatch.countDown();
+                                    System.out.println("Latch count: " + storeLatch.getCount());
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects
@@ -103,8 +112,7 @@ public class Controller {
                                     Index file = itr.next();
                                     if (file.dStore.contains(DstoreObj) && file.dStore.size() == 1) {
                                         itr.remove();
-                                        System.out.println("Removed " + file.filename
-                                                + " from the index because it's Dstore disconnected");
+                                        System.out.println("Removed " + file.filename + " from the index because it's Dstore disconnected");
                                     } else if (file.dStore.contains(DstoreObj)) {
                                         file.dStore.remove(DstoreObj);
                                     }
@@ -132,6 +140,15 @@ public class Controller {
             }
         }
         return result.stripTrailing();
+    }
+
+    private static boolean checkFileExists(String fileName) {
+        for (Index file : index) {
+            if (file.filename.equals(fileName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 

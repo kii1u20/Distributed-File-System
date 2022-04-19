@@ -47,6 +47,7 @@ public class Dstore {
                                                 String[] attr = line.split(" ");
                                                 String filename = attr[1];
                                                 String filesize = attr[2]; //TODO: Figure out what this is for
+                                                                           //Maybe to specify the size of the byte buffer?
                                                 outCl.println("ACK");
                                                 InputStream fInput = client.getInputStream();
                                                 File outputFile = new File(file_folder, filename);
