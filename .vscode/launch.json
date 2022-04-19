@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Launch Current File",
+            "request": "launch",
+            "mainClass": "${file}",
+            "args": "12345 2 5000 1"
+        },
+        {
+            "type": "java",
+            "name": "Launch Controller",
+            "request": "launch",
+            "mainClass": "Controller",
+            "projectName": "comp2207_440a9794"
+        },
+        {
+            "type": "java",
+            "name": "Launch Dstore",
+            "request": "launch",
+            "mainClass": "Dstore",
+            "projectName": "comp2207_440a9794"
+        }
+    ]
+}

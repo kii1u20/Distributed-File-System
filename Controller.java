@@ -11,7 +11,6 @@ public class Controller {
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
-        // int cport = 12345;
         int repFactor = Integer.parseInt(args[1]);
         int timeout = Integer.parseInt(args[2]);
         int reb_period = Integer.parseInt(args[3]);
@@ -45,6 +44,10 @@ public class Controller {
                                     dstores.add((DstoreObj = new DstoreObject(client, dPort)));
                                     out.println(dstores.size());
                                 }
+                                if (dstores.size() < repFactor) {
+                                    continue;
+                                }
+                                System.out.println("If there are enough Dstores only then handle client events");
                             }
                             //May be issue, don't know how java sockets work
                             client.close();
