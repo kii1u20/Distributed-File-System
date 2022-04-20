@@ -1,7 +1,9 @@
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -12,7 +14,7 @@ public class Controller {
 
     public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
     public static ArrayList<Index> index = new ArrayList<Index>();
-    static CountDownLatch storeLatch; //TODO: may not work correctly for mutiple clients, need more testing
+    public static List<Index> syncIndex = Collections.synchronizedList(index); 
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
@@ -66,40 +68,51 @@ public class Controller {
                                     System.out.println("List files requested: " + listFiles());
                                     out.println("LIST " + listFiles());
                                 } else if (line.contains("STORE ")) {
-                                    storeLatch = new CountDownLatch(repFactor);
+                                    CountDownLatch storeLatch = new CountDownLatch(repFactor);
                                     String[] attr = line.split(" ");
                                     String fileName = attr[1];
                                     int fileSize = Integer.parseInt(attr[2]);
 
                                     if (checkFileExists(fileName)) {
                                         out.println("ERROR_FILE_ALREADY_EXISTS");
+                                        System.out.println("ERROR_FILE_ALREADY_EXISTS");
                                         continue;
                                     }
 
                                     ArrayList<DstoreObject> dS = new ArrayList<DstoreObject>();
                                     String toClient = "STORE_TO ";
                                     for (int i = 0; i < repFactor; i++) {
-                                        DstoreObject obj = dstores.get(i); // TODO: I want to select random Dstores, may implement later
+                                        DstoreObject obj = dstores.get(i); // TODO: may need to select Dstores with least amount of files
                                         dS.add(obj);
                                         toClient += obj.port + " ";
                                     }
-                                    index.add(new Index(fileName, fileSize, "store in progress”", dS));
+                                    syncIndex.add(new Index(fileName, fileSize, "store in progress”", dS, storeLatch));
+                                    
                                     out.println(toClient.stripTrailing());
                                     System.out.println(toClient.stripTrailing());
-                                    if (!storeLatch.await(30, TimeUnit.SECONDS)) {
+                                    if (!storeLatch.await(timeout, TimeUnit.MILLISECONDS)) {
                                         System.err.println("The STORE operation timed out");
+                                        syncIndex.remove(getByFileName(fileName)); //If getByFileName return null, file doesnt exist
                                     } else {
-                                        for (Index file : index) {
-                                            if (file.filename.equals(fileName)) {
-                                                file.lifecycle = "store complete";
+                                        synchronized(syncIndex) { //TODO: might be deadlocking(ONLY IN DEBUG, MIGHT BE VSCode debugger holding the thread)
+                                            for (Index file : syncIndex) {
+                                                if (file.filename.equals(fileName)) {
+                                                    file.lifecycle = "store complete";
+                                                }
                                             }
                                         }
                                         System.out.println("STORE_COMPLETE for file " + fileName);
                                         out.println("STORE_COMPLETE");
                                     }
                                 } else if (line.contains("STORE_ACK ")) {
-                                    storeLatch.countDown();
-                                    System.out.println("Latch count: " + storeLatch.getCount());
+                                    String filename = line.split(" ")[1];
+                                    synchronized(syncIndex) { //TODO: might be deadlocking(ONLY IN DEBUG, MIGHT BE VSCode debugger holding the thread)
+                                        for (Index file : syncIndex) {
+                                            if (file.filename.equals(filename)) {
+                                                file.latch.countDown();
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects
@@ -107,14 +120,16 @@ public class Controller {
                             if (DstoreObj != null) {
                                 dstores.remove(DstoreObj);
                                 System.out.println("Removed Dstore on port " + DstoreObj.port + " because it disconnected");
-                                Iterator<Index> itr = index.iterator();
-                                while (itr.hasNext()) { // TODO: May not need to remove store in progress files, CHECK!
-                                    Index file = itr.next();
-                                    if (file.dStore.contains(DstoreObj) && file.dStore.size() == 1) {
-                                        itr.remove();
-                                        System.out.println("Removed " + file.filename + " from the index because it's Dstore disconnected");
-                                    } else if (file.dStore.contains(DstoreObj)) {
-                                        file.dStore.remove(DstoreObj);
+                                synchronized(syncIndex) {
+                                    Iterator<Index> itr = syncIndex.iterator();
+                                    while (itr.hasNext()) { // TODO: May not need to remove store in progress files, CHECK!
+                                        Index file = itr.next();
+                                        if (file.dStore.contains(DstoreObj) && file.dStore.size() == 1) {
+                                            itr.remove();
+                                            // System.out.println("Removed " + file.filename + " from the index because it's Dstore disconnected");
+                                        } else if (file.dStore.contains(DstoreObj)) {
+                                            file.dStore.remove(DstoreObj);
+                                        }
                                     }
                                 }
                             } else {
@@ -134,21 +149,36 @@ public class Controller {
 
     private static String listFiles() {
         String result = "";
-        for (Index file : index) {
-            if (file.lifecycle.equals("store complete")) {
-                result += file.filename + " ";
+        synchronized(syncIndex) {
+            for (Index file : syncIndex) {
+                if (file.lifecycle.equals("store complete")) {
+                    result += file.filename + " ";
+                }
             }
         }
         return result.stripTrailing();
     }
 
     private static boolean checkFileExists(String fileName) {
-        for (Index file : index) {
-            if (file.filename.equals(fileName)) {
-                return true;
+        synchronized(syncIndex) {
+            for (Index file : syncIndex) {
+                if (file.filename.equals(fileName)) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    private static Index getByFileName(String fileName) {
+        synchronized(syncIndex) {
+            for (Index file : syncIndex) {
+                if (file.filename.equals(fileName)) {
+                    return file;
+                }
+            }
+        }
+        return null;
     }
 }
 
@@ -157,12 +187,14 @@ class Index {
     public String lifecycle;
     public ArrayList<DstoreObject> dStore;
     public int filesize;
+    public CountDownLatch latch;
 
-    public Index(String filename, int filesize, String lifecycle, ArrayList<DstoreObject> dStore) {
+    public Index(String filename, int filesize, String lifecycle, ArrayList<DstoreObject> dStore, CountDownLatch latch) {
         this.filename = filename;
         this.filesize = filesize;
         this.lifecycle = lifecycle;
         this.dStore = dStore;
+        this.latch = latch;
     }
 }
 

@@ -16,7 +16,7 @@
             "request": "launch",
             "mainClass": "Controller",
             "projectName": "comp2207_440a9794",
-            "args": "12345 2 5000 1"
+            "args": "12345 2 30000 1"
         },
         {
             "type": "java",
