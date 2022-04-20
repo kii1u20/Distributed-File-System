@@ -1,9 +1,6 @@
 import java.io.*;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -12,9 +9,12 @@ import java.util.concurrent.TimeUnit;
  */
 public class Controller {
 
-    public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
-    public static ArrayList<Index> index = new ArrayList<Index>();
-    public static List<Index> syncIndex = Collections.synchronizedList(index); 
+    // public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
+    public static ConcurrentHashMap<Integer, DstoreObject> dstores = new ConcurrentHashMap<Integer, DstoreObject>();
+    public static ConcurrentHashMap<String, Index> index = new ConcurrentHashMap<String, Index>();
+    // public static ArrayList<Index> index = new ArrayList<Index>();
+    // public static List<Index> syncIndex = Collections.synchronizedList(index); //TODO: can switch to using hashtable, which is threadsafe
+                                                                               //https://www.geeksforgeeks.org/hashtable-in-java/
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
@@ -50,7 +50,7 @@ public class Controller {
                                 System.out.println("Command: " + line);
                                 if (line.contains("JOIN")) {
                                     int dPort = Integer.parseInt(line.split(" ")[1]);
-                                    dstores.add((DstoreObj = new DstoreObject(client, dPort)));
+                                    dstores.put(dPort, (DstoreObj = new DstoreObject(client, dPort)));
                                     System.out.println("Dstore joined the system on port " + client.getPort());
                                     // } else if (line.contains("LIST ")) {
                                     // line = line.replace("LIST ", "");
@@ -73,64 +73,52 @@ public class Controller {
                                     String fileName = attr[1];
                                     int fileSize = Integer.parseInt(attr[2]);
 
-                                    if (checkFileExists(fileName)) {
+                                    if (index.get(fileName) != null) {
                                         out.println("ERROR_FILE_ALREADY_EXISTS");
                                         System.out.println("ERROR_FILE_ALREADY_EXISTS");
                                         continue;
                                     }
 
-                                    ArrayList<DstoreObject> dS = new ArrayList<DstoreObject>();
+                                    ConcurrentHashMap<Integer, DstoreObject> dS = new ConcurrentHashMap<Integer, DstoreObject>();
                                     String toClient = "STORE_TO ";
                                     for (int i = 0; i < repFactor; i++) {
-                                        DstoreObject obj = dstores.get(i); // TODO: may need to select Dstores with least amount of files
-                                        dS.add(obj);
+                                        Integer key = (Integer) dstores.keySet().toArray()[i]; //TODO: EDIT!
+                                        DstoreObject obj = dstores.get(key); // TODO: may need to select Dstores with least amount of files
+                                        dS.put(key, obj);
                                         toClient += obj.port + " ";
                                     }
-                                    syncIndex.add(new Index(fileName, fileSize, "store in progress”", dS, storeLatch));
+                                    index.put(fileName, new Index(fileName, fileSize, "store in progress”", dS, storeLatch));
                                     
                                     out.println(toClient.stripTrailing());
                                     System.out.println(toClient.stripTrailing());
                                     if (!storeLatch.await(timeout, TimeUnit.MILLISECONDS)) {
                                         System.err.println("The STORE operation timed out");
-                                        syncIndex.remove(getByFileName(fileName)); //If getByFileName return null, file doesnt exist
+                                        index.remove(fileName); //If getByFileName return null, file doesnt exist
                                     } else {
-                                        synchronized(syncIndex) { //TODO: might be deadlocking(ONLY IN DEBUG, MIGHT BE VSCode debugger holding the thread)
-                                            for (Index file : syncIndex) {
-                                                if (file.filename.equals(fileName)) {
-                                                    file.lifecycle = "store complete";
-                                                }
-                                            }
-                                        }
+                                        index.get(fileName).lifecycle = "store complete";
                                         System.out.println("STORE_COMPLETE for file " + fileName);
                                         out.println("STORE_COMPLETE");
                                     }
                                 } else if (line.contains("STORE_ACK ")) {
                                     String filename = line.split(" ")[1];
-                                    synchronized(syncIndex) { //TODO: might be deadlocking(ONLY IN DEBUG, MIGHT BE VSCode debugger holding the thread)
-                                        for (Index file : syncIndex) {
-                                            if (file.filename.equals(filename)) {
-                                                file.latch.countDown();
-                                            }
-                                        }
-                                    }
+                                    index.get(filename).latch.countDown();
+                                    System.out.println(filename + " latch: " + index.get(filename).latch.getCount());
+                                } else if (line.contains("LOAD ")) {
+                                    String filename = line.split(" ")[1];
+
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects
                             client.close();
                             if (DstoreObj != null) {
-                                dstores.remove(DstoreObj);
+                                dstores.remove(DstoreObj.port);
                                 System.out.println("Removed Dstore on port " + DstoreObj.port + " because it disconnected");
-                                synchronized(syncIndex) {
-                                    Iterator<Index> itr = syncIndex.iterator();
-                                    while (itr.hasNext()) { // TODO: May not need to remove store in progress files, CHECK!
-                                        Index file = itr.next();
-                                        if (file.dStore.contains(DstoreObj) && file.dStore.size() == 1) {
-                                            itr.remove();
-                                            // System.out.println("Removed " + file.filename + " from the index because it's Dstore disconnected");
-                                        } else if (file.dStore.contains(DstoreObj)) {
-                                            file.dStore.remove(DstoreObj);
-                                        }
-                                    }
+                                for (Index file : index.values()) {
+                                    if (file.dStore.containsValue(DstoreObj) && file.dStore.size() == 1) {
+                                        index.remove(file.filename);
+                                    } else if (file.dStore.contains(DstoreObj)) {
+                                        file.dStore.remove(DstoreObj.port);
+                                    }                 
                                 }
                             } else {
                                 System.out.println("Client on port " + client.getPort() + " disconnected");
@@ -149,47 +137,22 @@ public class Controller {
 
     private static String listFiles() {
         String result = "";
-        synchronized(syncIndex) {
-            for (Index file : syncIndex) {
-                if (file.lifecycle.equals("store complete")) {
-                    result += file.filename + " ";
-                }
-            }
+        var files = index.values();
+        for (Index file : files) {
+            result += file.filename + " ";
         }
         return result.stripTrailing();
-    }
-
-    private static boolean checkFileExists(String fileName) {
-        synchronized(syncIndex) {
-            for (Index file : syncIndex) {
-                if (file.filename.equals(fileName)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static Index getByFileName(String fileName) {
-        synchronized(syncIndex) {
-            for (Index file : syncIndex) {
-                if (file.filename.equals(fileName)) {
-                    return file;
-                }
-            }
-        }
-        return null;
     }
 }
 
 class Index {
     public String filename;
     public String lifecycle;
-    public ArrayList<DstoreObject> dStore;
+    public ConcurrentHashMap<Integer, DstoreObject> dStore;
     public int filesize;
     public CountDownLatch latch;
 
-    public Index(String filename, int filesize, String lifecycle, ArrayList<DstoreObject> dStore, CountDownLatch latch) {
+    public Index(String filename, int filesize, String lifecycle, ConcurrentHashMap<Integer, DstoreObject> dStore, CountDownLatch latch) {
         this.filename = filename;
         this.filesize = filesize;
         this.lifecycle = lifecycle;
