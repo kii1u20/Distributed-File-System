@@ -44,6 +44,7 @@ public class Controller {
                             BufferedReader inStr = new BufferedReader(new InputStreamReader(client.getInputStream()));
                             PrintWriter out = new PrintWriter(client.getOutputStream(), true);
 
+                            int reloadCount = 1;
                             String line;
                             DstoreObject DstoreObj = null;
                             while ((line = inStr.readLine()) != null) {
@@ -68,16 +69,17 @@ public class Controller {
                                     System.out.println("List files requested: " + listFiles());
                                     out.println("LIST " + listFiles());
                                 } else if (line.contains("STORE ")) {
-                                    CountDownLatch storeLatch = new CountDownLatch(repFactor);
                                     String[] attr = line.split(" ");
                                     String fileName = attr[1];
                                     int fileSize = Integer.parseInt(attr[2]);
-
+                                    
                                     if (index.get(fileName) != null) {
                                         out.println("ERROR_FILE_ALREADY_EXISTS");
                                         System.out.println("ERROR_FILE_ALREADY_EXISTS");
                                         continue;
                                     }
+
+                                    CountDownLatch storeLatch = new CountDownLatch(repFactor);
 
                                     ConcurrentHashMap<Integer, DstoreObject> dS = new ConcurrentHashMap<Integer, DstoreObject>();
                                     String toClient = "STORE_TO ";
@@ -88,12 +90,12 @@ public class Controller {
                                         toClient += obj.port + " ";
                                     }
                                     index.put(fileName, new Index(fileName, fileSize, "store in progress”", dS, storeLatch));
-                                    
+                                    Thread.sleep(10); //In case a client adds something, and the Dstore returns STORE_ACK before the Hashmap has updated
                                     out.println(toClient.stripTrailing());
                                     System.out.println(toClient.stripTrailing());
                                     if (!storeLatch.await(timeout, TimeUnit.MILLISECONDS)) {
                                         System.err.println("The STORE operation timed out");
-                                        index.remove(fileName); //If getByFileName return null, file doesnt exist
+                                        index.remove(fileName);
                                     } else {
                                         index.get(fileName).lifecycle = "store complete";
                                         System.out.println("STORE_COMPLETE for file " + fileName);
@@ -105,7 +107,30 @@ public class Controller {
                                     System.out.println(filename + " latch: " + index.get(filename).latch.getCount());
                                 } else if (line.contains("LOAD ")) {
                                     String filename = line.split(" ")[1];
-
+                                    Index file = index.get(filename);
+                                    if (file == null) {
+                                        out.println("ERROR_FILE_DOES_NOT_EXIST");
+                                        System.out.println("ERROR_FILE_DOES_NOT_EXIST");
+                                        continue;
+                                    }
+                                    Integer port = (Integer) file.dStore.keySet().toArray()[0];
+                                    out.println("LOAD_FROM " + port + " " + file.filesize);
+                                } else if (line.contains("RELOAD ")) {
+                                    String filename = line.split(" ")[1];
+                                    if (reloadCount < repFactor) {
+                                        Index file = index.get(filename);
+                                        if (file == null) {
+                                            out.println("ERROR_FILE_DOES_NOT_EXIST");
+                                            System.out.println("ERROR_FILE_DOES_NOT_EXIST");
+                                            continue;
+                                        }
+                                        Integer port = (Integer) file.dStore.keySet().toArray()[0];
+                                        out.println("LOAD_FROM " + port + " " + file.filesize);
+                                        reloadCount++;
+                                    } else {
+                                        out.println("ERROR_LOAD");
+                                        System.out.println("ERROR_LOAD");
+                                    }
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects
@@ -114,7 +139,7 @@ public class Controller {
                                 dstores.remove(DstoreObj.port);
                                 System.out.println("Removed Dstore on port " + DstoreObj.port + " because it disconnected");
                                 for (Index file : index.values()) {
-                                    if (file.dStore.containsValue(DstoreObj) && file.dStore.size() == 1) {
+                                    if (file.dStore.containsValue(DstoreObj) && file.dStore.size() == 1) { //TODO: Might need to check the size to replication factor
                                         index.remove(file.filename);
                                     } else if (file.dStore.contains(DstoreObj)) {
                                         file.dStore.remove(DstoreObj.port);
@@ -139,7 +164,9 @@ public class Controller {
         String result = "";
         var files = index.values();
         for (Index file : files) {
-            result += file.filename + " ";
+            if (file.lifecycle.equals("store complete")) {
+                result += file.filename + " ";
+            }
         }
         return result.stripTrailing();
     }

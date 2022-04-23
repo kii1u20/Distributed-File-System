@@ -36,9 +36,11 @@ public class Dstore {
                             new Thread(new Runnable() {
                                 public void run() {
                                     try {
+                                        InputStream input = client.getInputStream();
+                                        OutputStream output = client.getOutputStream();
                                         BufferedReader inCl = new BufferedReader(
-                                                new InputStreamReader(client.getInputStream()));
-                                        PrintWriter outCl = new PrintWriter(client.getOutputStream(), true);
+                                                new InputStreamReader(input));
+                                        PrintWriter outCl = new PrintWriter(output, true);
 
                                         String line;
                                         while ((line = inCl.readLine()) != null) {
@@ -49,16 +51,28 @@ public class Dstore {
                                                 String filesize = attr[2]; //TODO: Figure out what this is for
                                                                            //Maybe to specify the size of the byte buffer?
                                                 outCl.println("ACK");
-                                                InputStream fInput = client.getInputStream();
                                                 File outputFile = new File(file_folder, filename);
                                                 FileOutputStream fOut = new FileOutputStream(outputFile);
                                                 byte[] buffer = new byte[1024];
-                                                if ((buffer = fInput.readNBytes(1024)).length != 0) {
+                                                while ((buffer = input.readNBytes(1024)).length != 0) {
                                                     System.out.println("*");
                                                     fOut.write(buffer);
                                                 }
                                                 out.println("STORE_ACK " + filename);
                                                 fOut.close();
+                                            } else if (line.contains("LOAD_DATA ")) {
+                                                String filename = line.split(" ")[1];
+                                                File file = new File(file_folder, filename);
+                                                if (!file.exists()) {
+                                                    client.close();
+                                                    break;
+                                                }
+                                                FileInputStream fIn = new FileInputStream(file);
+                                                byte[] buffer = new byte[1024];
+                                                while (fIn.read(buffer) != -1) {
+                                                    System.out.println("*");
+                                                    output.write(buffer);
+                                                }
                                             }
                                         }
                                     } catch (Exception e) {
