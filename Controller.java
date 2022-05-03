@@ -44,7 +44,7 @@ public class Controller {
                             BufferedReader inStr = new BufferedReader(new InputStreamReader(client.getInputStream()));
                             PrintWriter out = new PrintWriter(client.getOutputStream(), true);
 
-                            int reloadCount = 1;
+                            int reloadCount = 0;
                             String line;
                             DstoreObject DstoreObj = null;
                             while ((line = inStr.readLine()) != null) {
@@ -106,6 +106,7 @@ public class Controller {
                                     index.get(filename).latch.countDown();
                                     System.out.println(filename + " latch: " + index.get(filename).latch.getCount());
                                 } else if (line.contains("LOAD ")) {
+                                    reloadCount = 1;
                                     String filename = line.split(" ")[1];
                                     Index file = index.get(filename);
                                     if (file == null) {
@@ -124,13 +125,40 @@ public class Controller {
                                             System.out.println("ERROR_FILE_DOES_NOT_EXIST");
                                             continue;
                                         }
-                                        Integer port = (Integer) file.dStore.keySet().toArray()[0];
+                                        Integer port = (Integer) file.dStore.keySet().toArray()[reloadCount];
                                         out.println("LOAD_FROM " + port + " " + file.filesize);
                                         reloadCount++;
                                     } else {
                                         out.println("ERROR_LOAD");
                                         System.out.println("ERROR_LOAD");
                                     }
+                                } else if (line.contains("REMOVE ")) {
+                                    String filename = line.split(" ")[1];
+                                    Index file = index.get(filename);
+                                    if (file == null) {
+                                        out.println("ERROR_FILE_DOES_NOT_EXIST");
+                                        continue;
+                                    }
+                                    if (file.lifecycle.equals("store complete")) {
+                                        file.lifecycle = "remove in progress";
+                                        file.latch = new CountDownLatch(file.dStore.size());
+                                        for (DstoreObject dstore : file.dStore.values()) {
+                                            // BufferedReader dStoreIn = new BufferedReader(new InputStreamReader(dstore.socket.getInputStream()));
+                                            PrintWriter dStoreOut = new PrintWriter(dstore.socket.getOutputStream(), true);
+                                            dStoreOut.println("REMOVE " + filename);
+                                        }
+                                        if (file.latch.await(timeout, TimeUnit.MILLISECONDS)) {
+                                            file.lifecycle = "remove complete";
+                                            index.remove(filename);
+                                            out.println("REMOVE_COMPLETE");
+                                        }//TODO: May have to check if at least one Dstore has removed the file even if the latch fails
+                                    } else {
+                                        //TODO: ERROR - check concurrent operations - implement later
+                                    }
+                                } else if (line.contains("REMOVE_ACK ")) {
+                                    String filename = line.split(" ")[1];
+                                    Index file = index.get(filename);
+                                    file.latch.countDown();
                                 }
                             }
                             // if a Dstore disconnects or a client disconnects

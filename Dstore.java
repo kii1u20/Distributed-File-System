@@ -93,6 +93,14 @@ public class Dstore {
                 if (line.equals("LIST")) {
                     String filenames = getFileNames(folder);
                     out.println("LIST " + filenames);
+                } else if (line.contains("REMOVE ")) {
+                    String filename = line.split(" ")[1];
+                    File file = new File(file_folder, filename);
+                    if (file.delete()) {
+                        out.println("REMOVE_ACK " + filename);
+                    } else {
+                        out.println("ERROR_FILE_DOES_NOT_EXIST " + filename);
+                    }
                 }
             }
 
