@@ -135,7 +135,7 @@ public class Controller {
                                 } else if (line.contains("REMOVE ")) {
                                     String filename = line.split(" ")[1];
                                     Index file = index.get(filename);
-                                    if (file == null) {
+                                    if (file == null || !file.lifecycle.equals("store complete")) {
                                         out.println("ERROR_FILE_DOES_NOT_EXIST");
                                         continue;
                                     }
