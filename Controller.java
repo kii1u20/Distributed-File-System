@@ -9,12 +9,9 @@ import java.util.concurrent.TimeUnit;
  */
 public class Controller {
 
-    // public static ArrayList<DstoreObject> dstores = new ArrayList<DstoreObject>();
     public static ConcurrentHashMap<Integer, DstoreObject> dstores = new ConcurrentHashMap<Integer, DstoreObject>();
     public static ConcurrentHashMap<String, Index> index = new ConcurrentHashMap<String, Index>();
-    // public static ArrayList<Index> index = new ArrayList<Index>();
-    // public static List<Index> syncIndex = Collections.synchronizedList(index); //TODO: can switch to using hashtable, which is threadsafe
-                                                                               //https://www.geeksforgeeks.org/hashtable-in-java/
+    public static ConcurrentHashMap<String, String> rebalanceFiles = new ConcurrentHashMap<String, String>();
 
     public static void main(String[] args) {
         int cport = Integer.parseInt(args[0]);
@@ -45,6 +42,7 @@ public class Controller {
                             PrintWriter out = new PrintWriter(client.getOutputStream(), true);
 
                             int reloadCount = 0;
+                            int dStoresReplied = 0;
                             String line;
                             DstoreObject DstoreObj = null;
                             while ((line = inStr.readLine()) != null) {
@@ -53,14 +51,18 @@ public class Controller {
                                     int dPort = Integer.parseInt(line.split(" ")[1]);
                                     dstores.put(dPort, (DstoreObj = new DstoreObject(client, dPort)));
                                     System.out.println("Dstore joined the system on port " + client.getPort());
-                                    // } else if (line.contains("LIST ")) {
-                                    // line = line.replace("LIST ", "");
-                                    // System.out.println("Dstore files: " + line);
-                                    // String[] files = line.split(" ");
-                                    // for (String file : files) {
-                                    // index.add(new Index(file, "available", DstoreObj));
-                                    // System.out.println("Added " + file + " to the index");
-                                    // }
+                                    startRebalance();
+                                } else if (line.contains("LIST ")) {
+                                    dStoresReplied++;
+                                    line = line.replace("LIST ", "");
+                                    System.out.println("Dstore files: " + line);
+                                    String[] files = line.split(" ");
+                                    for (String file : files) {
+                                        rebalanceFiles.put(file, file);
+                                    }
+                                    if (dStoresReplied == dstores.size()) {
+                                        rebalance();
+                                    }
                                 } else if (dstores.size() < repFactor) {
                                     out.println("ERROR_NOT_ENOUGH_DSTORES");
                                     System.out.println("ERROR_NOT_ENOUGH_DSTORES");
@@ -185,6 +187,22 @@ public class Controller {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void rebalance() {
+        for (Index file : index.values()) {
+            if (rebalanceFiles.get(file.filename).equals(null)) {
+                index.remove(file.filename);
+            }
+        }
+    }
+
+    private static void startRebalance() throws Exception {
+        PrintWriter out;
+        for (DstoreObject dStore : dstores.values()) {
+            out = new PrintWriter(dStore.socket.getOutputStream(), true);
+            out.println("LIST");
         }
     }
 
