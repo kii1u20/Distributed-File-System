@@ -15,7 +15,6 @@
             "name": "Launch Controller",
             "request": "launch",
             "mainClass": "Controller",
-            "projectName": "comp2207_440a9794",
             "args": "12345 2 30000 1"
         },
         {
@@ -23,7 +22,6 @@
             "name": "Launch Dstore",
             "request": "launch",
             "mainClass": "Dstore",
-            "projectName": "comp2207_440a9794",
             "args": "54321 12345 9000 files"
         }
     ]
