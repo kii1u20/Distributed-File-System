@@ -1,10 +1,17 @@
 import java.io.*;
 import java.net.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.*;
+import static java.util.Comparator.comparingInt;
+import static java.util.stream.Collectors.toMap;
 
 /**
  * Controller
@@ -12,19 +19,26 @@ import java.util.concurrent.atomic.*;
 public class Controller {
 
     public static ConcurrentHashMap<Integer, DstoreObject> dstores = new ConcurrentHashMap<Integer, DstoreObject>();
+    public static ConcurrentHashMap<DstoreObject, CopyOnWriteArrayList<String>> dstoresFiles = new ConcurrentHashMap<DstoreObject, CopyOnWriteArrayList<String>>(); 
     public static ConcurrentHashMap<String, Index> index = new ConcurrentHashMap<String, Index>();
     public static ConcurrentHashMap<String, ConcurrentHashMap<Integer, DstoreObject>> rebalanceFiles = new ConcurrentHashMap<String, ConcurrentHashMap<Integer, DstoreObject>>();
+    public static ConcurrentHashMap<String, CopyOnWriteArrayList<DstoreObject>> filesToSend = new ConcurrentHashMap<String, CopyOnWriteArrayList<DstoreObject>>();
 
     static AtomicInteger dStoresReplied = new AtomicInteger(0);
     static AtomicInteger rebalancesDone = new AtomicInteger(0);
     static AtomicBoolean isRebalancing = new AtomicBoolean(false);
     static AtomicBoolean pendingOp = new AtomicBoolean(false);
 
+    static int cport;
+    static int repFactor;
+    static int timeout;
+    static int reb_period;
+
     public static void main(String[] args) {
-        int cport = Integer.parseInt(args[0]);
-        int repFactor = Integer.parseInt(args[1]);
-        int timeout = Integer.parseInt(args[2]);
-        int reb_period = Integer.parseInt(args[3]);
+        cport = Integer.parseInt(args[0]);
+        repFactor = Integer.parseInt(args[1]);
+        timeout = Integer.parseInt(args[2]);
+        reb_period = Integer.parseInt(args[3]);
         System.out.println("port: " + cport + ", " + "replication factor: " +
                 repFactor + ", " + "timeout: " + timeout + ", " + "rebalance period: " + reb_period);
 
@@ -57,11 +71,12 @@ public class Controller {
                                     if (line.contains("JOIN")) {
                                         int dPort = Integer.parseInt(line.split(" ")[1]);
                                         dstores.put(dPort, (DstoreObj = new DstoreObject(client, dPort)));
+                                        dstoresFiles.put(DstoreObj, new CopyOnWriteArrayList<String>());
                                         System.out.println("Dstore joined the system on port " + client.getPort());
                                         if (rebalancesDone.get() != 0) {
                                             
                                         }
-                                        startRebalance(); //TODO: Move it up in the IF
+                                        // startRebalance(); //TODO: Move it up in the IF
                                     } else if (dstores.size() < repFactor) {
                                         out.println("ERROR_NOT_ENOUGH_DSTORES");
                                         System.out.println("ERROR_NOT_ENOUGH_DSTORES");
@@ -86,13 +101,14 @@ public class Controller {
                                         ConcurrentHashMap<Integer, DstoreObject> dS = new ConcurrentHashMap<Integer, DstoreObject>();
                                         String toClient = "STORE_TO ";
                                         for (int i = 0; i < repFactor; i++) {
-                                            Integer key = (Integer) dstores.keySet().toArray()[i]; //TODO: EDIT!
-                                            DstoreObject obj = dstores.get(key); // TODO: may need to select Dstores with least amount of files
-                                            dS.put(key, obj);
+                                            DstoreObject obj = getDstoreForStore(fileName);
+                                            dstoresFiles.get(obj).add(fileName);
+                                            dS.put(obj.port, obj);
                                             toClient += obj.port + " ";
                                         }
                                         index.put(fileName, new Index(fileName, fileSize, "store in progress”", dS, storeLatch));
                                         Thread.sleep(10); //In case a client adds something, and the Dstore returns STORE_ACK before the Hashmap has updated
+                                                          //TODO: May need to remove this as it may not be needed
                                         out.println(toClient.stripTrailing());
                                         System.out.println(toClient.stripTrailing());
                                         if (!storeLatch.await(timeout, TimeUnit.MILLISECONDS)) {
@@ -223,18 +239,42 @@ public class Controller {
     private static void rebalance() throws Exception {
         rebalancesDone.incrementAndGet();
 
+        var toSend = new CopyOnWriteArrayList<DstoreObject>();
+
         System.out.println(Thread.currentThread()); //TODO: Remove - DEBUG only
 
         // Thread.sleep(10000); //TODO: remove, JUST for debugging
         for (Index file : index.values()) {
             if (rebalanceFiles.get(file.filename) == null) {
                 index.remove(file.filename);
-            }
-            if (file.lifecycle.equals("remove in progress")) {
+            } else if (file.lifecycle.equals("remove in progress")) {
                 for (DstoreObject dstore : file.dStore.values()) {
                     PrintWriter out = new PrintWriter(dstore.socket.getOutputStream(), true);
                     out.print("REMOVE " + file.filename);
                 }
+            } 
+            if (file.dStore.size() < repFactor) {
+                DstoreObject ds = file.dStore.get(file.dStore.keySet().toArray()[0]);;
+                while (file.dStore.size() < repFactor) {
+                    if (file.dStore.size() > 0 && dstores.size() >= repFactor) {
+                        DstoreObject next;
+                        while (true) {
+                            next = (DstoreObject) dstores.values().toArray()[new Random().nextInt(dstores.size())];
+                            if (file.dStore.contains(next)) {
+                                continue;
+                            } else {
+                                break;
+                            }
+                        }
+                        toSend.add(next);
+                        filesToSend.put(file.filename, toSend);
+                    } else {
+                        index.remove(file.filename); //TODO: If Dstores disconnect, the file may be replecated < repFactor, but there might not be enough Dstore,
+                                                     //so throw an error to show not enough Dstores are connected to do the rebalancing.
+                    }
+                }
+                PrintWriter out = new PrintWriter(ds.socket.getOutputStream(), true);
+                out.println("REBALANCE ");
             }
         }
         isRebalancing.set(false); //TODO: Remove this
@@ -252,6 +292,26 @@ public class Controller {
             out = new PrintWriter(dStore.socket.getOutputStream(), true);
             out.println("LIST");
         }
+    }
+
+    private static DstoreObject getDstoreForStore(String filename) {
+        DstoreObject returnValue = null;
+        Map<DstoreObject, CopyOnWriteArrayList<String>> sorted = dstoresFiles.entrySet().stream()
+                .sorted(comparingInt(e -> e.getValue().size()))
+                .collect(toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (a, b) -> {
+                            throw new AssertionError();
+                        },
+                        LinkedHashMap::new));
+        for (DstoreObject dstore : sorted.keySet()) {
+            if (!dstoresFiles.get(dstore).contains(filename)) {
+                returnValue = dstore;
+                return returnValue;
+            }
+        }
+        return returnValue;
     }
 
     private static String listFiles() {

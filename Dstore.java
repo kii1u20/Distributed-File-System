@@ -101,6 +101,8 @@ public class Dstore {
                     } else {
                         out.println("ERROR_FILE_DOES_NOT_EXIST " + filename);
                     }
+                } else if (line.contains("REBALANCE ")) {
+                    
                 }
             }
 
