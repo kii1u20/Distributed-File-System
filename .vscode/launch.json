@@ -22,7 +22,7 @@
             "name": "Launch Dstore",
             "request": "launch",
             "mainClass": "Dstore",
-            "args": "54321 12345 9000 files"
+            "args": "54321 12345 9000 files2"
         }
     ]
 }
