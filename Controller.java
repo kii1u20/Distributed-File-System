@@ -123,7 +123,7 @@ public class Controller {
                                             System.out.println("ERROR_FILE_ALREADY_EXISTS");
                                             continue;
                                         }
-    
+                                        
                                         CountDownLatch storeLatch = new CountDownLatch(repFactor);
     
                                         ConcurrentHashMap<Integer, DstoreObject> dS = new ConcurrentHashMap<Integer, DstoreObject>();
@@ -321,6 +321,8 @@ public class Controller {
                 for (int i = file.dStore.size(); i < repFactor; i++) {
                     var store = getDstoreForStore(file.filename, targetDstores, ds);
                     targetDstores.add(store);
+                    dstoresFiles.get(store).add(file.filename);
+                    file.dStore.put(store.port, store);
                 }
                 rebalance.add(new DstoreRebalance(ds, RebalanceOperation.SEND, targetDstores, file.filename));
             }
@@ -342,7 +344,7 @@ public class Controller {
             out.println("LIST");
         }
         if (rebalanceLatch.await(timeout, TimeUnit.MILLISECONDS)) {
-            System.out.println("PUTKA");
+            System.out.println("PUTKA"); //TODO: Remove!
             rebalance();
         } else {
             //TODO: throw some error
