@@ -38,6 +38,7 @@ public class Controller {
     static AtomicBoolean pendingOp = new AtomicBoolean(false);
 
     static CountDownLatch rebalanceLatch;
+    static ScheduledFuture<?> rebalanceTimer;
 
     static int cport;
     static int repFactor;
@@ -68,7 +69,7 @@ public class Controller {
                 }
             };
 
-            ScheduledFuture<?> rebalanceTimer = executorService.scheduleAtFixedRate(runRebalance, reb_period, reb_period, TimeUnit.SECONDS);
+            rebalanceTimer = executorService.scheduleAtFixedRate(runRebalance, reb_period, reb_period, TimeUnit.SECONDS);
             while (true) {
                 System.out.println("Waiting for connection request...");
 
@@ -101,7 +102,8 @@ public class Controller {
                                         System.out.println("Dstore joined the system on port " + client.getPort());
                                         if (rebalancesDone.get() != 0) {
                                             rebalanceTimer.cancel(false);
-                                            runRebalance.run();
+                                            System.out.println("Rebalance timer cancelled");
+                                            rebalanceTimer = executorService.scheduleAtFixedRate(runRebalance, 0, reb_period, TimeUnit.SECONDS);
                                         }
                                     } else if (dstores.size() < repFactor) {
                                         out.println("ERROR_NOT_ENOUGH_DSTORES");
