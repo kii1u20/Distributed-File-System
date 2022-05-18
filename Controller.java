@@ -11,6 +11,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.*;
 import static java.util.Comparator.comparingInt;
@@ -33,6 +37,9 @@ public class Controller {
     static AtomicBoolean isRebalancing = new AtomicBoolean(false);
     static AtomicBoolean pendingOp = new AtomicBoolean(false);
 
+    static CountDownLatch rebalanceLatch;
+    static ScheduledFuture<?> rebalanceTimer;
+
     static int cport;
     static int repFactor;
     static int timeout;
@@ -49,7 +56,20 @@ public class Controller {
         ServerSocket ss = null;
         try {
             ss = new ServerSocket(cport);
+            ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
+            Runnable runRebalance = new Runnable() {
+                public void run() {
+                    try {
+                        System.out.println("Rebalancing...");
+						startRebalance();
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+                }
+            };
+
+            rebalanceTimer = executorService.scheduleAtFixedRate(runRebalance, reb_period, reb_period, TimeUnit.SECONDS);
             while (true) {
                 System.out.println("Waiting for connection request...");
 
@@ -69,7 +89,10 @@ public class Controller {
                             int reloadCount = 0;
                             String line;
                             DstoreObject DstoreObj = null;
-                            while ((line = inStr.readLine()) != null) {
+                            while (true) {
+                                if ((line = inStr.readLine()) == null) {
+                                    break;
+                                }
                                 if (isRebalancing.get() == false) {
                                     System.out.println("Command: " + line);
                                     if (line.contains("JOIN")) {
@@ -78,9 +101,10 @@ public class Controller {
                                         dstoresFiles.put(DstoreObj, new CopyOnWriteArrayList<String>());
                                         System.out.println("Dstore joined the system on port " + client.getPort());
                                         if (rebalancesDone.get() != 0) {
-                                            
+                                            rebalanceTimer.cancel(false);
+                                            System.out.println("Rebalance timer cancelled");
+                                            rebalanceTimer = executorService.scheduleAtFixedRate(runRebalance, 0, reb_period, TimeUnit.SECONDS);
                                         }
-                                        startRebalance(); //TODO: Move it up in the IF
                                     } else if (dstores.size() < repFactor) {
                                         out.println("ERROR_NOT_ENOUGH_DSTORES");
                                         System.out.println("ERROR_NOT_ENOUGH_DSTORES");
@@ -99,7 +123,7 @@ public class Controller {
                                             System.out.println("ERROR_FILE_ALREADY_EXISTS");
                                             continue;
                                         }
-    
+                                        
                                         CountDownLatch storeLatch = new CountDownLatch(repFactor);
     
                                         ConcurrentHashMap<Integer, DstoreObject> dS = new ConcurrentHashMap<Integer, DstoreObject>();
@@ -189,7 +213,7 @@ public class Controller {
                                     if (line.contains("LIST ")) {
                                         dStoresReplied.incrementAndGet();
                                         line = line.replace("LIST ", "");
-                                        System.out.println("Dstore files: " + line);
+                                        System.out.println("Dstore " + DstoreObj.port + " files: " + line);
                                         String[] files = line.split(" ");
                                         List<String> filesList = Arrays.asList(files);
                                         //TODO: BELOW ARE WRONG!
@@ -203,13 +227,12 @@ public class Controller {
                                                 dstoresFiles.get(DstoreObj).remove(file);
                                             }
                                         }
-                                        if (dStoresReplied.get() == dstores.size()) {
-                                            System.out.println(Thread.currentThread()); //TODO: Remove - DEBUG only
-                                            rebalance();
-                                        }
+                                        rebalanceLatch.countDown();
+                                        System.out.println("Rebalance latch: " + rebalanceLatch.getCount());
                                     } else if (line.equals("REBALANCE_COMPLETE")) {
                                         isRebalancing.set(false);
                                     } else {
+                                        System.out.println("QUEUE!");
                                         queue.add(line);
                                     }
                                 }
@@ -249,6 +272,7 @@ public class Controller {
             CopyOnWriteArrayList<String> filesToDelete = new CopyOnWriteArrayList<String>();
             if (list.isEmpty()) {
                 System.out.println("No pending rebalancing for Dstore: " + ds.port);
+                isRebalancing.set(false); //TODO: Remove this
             } else {
                 PrintWriter out = new PrintWriter(ds.socket.getOutputStream(), true);
                 for (DstoreRebalance command : list) {
@@ -297,12 +321,13 @@ public class Controller {
                 for (int i = file.dStore.size(); i < repFactor; i++) {
                     var store = getDstoreForStore(file.filename, targetDstores, ds);
                     targetDstores.add(store);
+                    dstoresFiles.get(store).add(file.filename);
+                    file.dStore.put(store.port, store);
                 }
                 rebalance.add(new DstoreRebalance(ds, RebalanceOperation.SEND, targetDstores, file.filename));
             }
         }
         executeRebalance();
-        isRebalancing.set(false); //TODO: Remove this
     }
 
     private static void startRebalance() throws Exception {
@@ -313,9 +338,16 @@ public class Controller {
         dStoresReplied.set(0);
         rebalance.clear();
         isRebalancing.set(true);
+        rebalanceLatch = new CountDownLatch(dstores.size());
         for (DstoreObject dStore : dstores.values()) {
             out = new PrintWriter(dStore.socket.getOutputStream(), true);
             out.println("LIST");
+        }
+        if (rebalanceLatch.await(timeout, TimeUnit.MILLISECONDS)) {
+            System.out.println("PUTKA"); //TODO: Remove!
+            rebalance();
+        } else {
+            //TODO: throw some error
         }
     }
 

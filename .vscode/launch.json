@@ -15,7 +15,7 @@
             "name": "Launch Controller",
             "request": "launch",
             "mainClass": "Controller",
-            "args": "12345 2 30000 1"
+            "args": "12345 2 30000 10"
         },
         {
             "type": "java",
