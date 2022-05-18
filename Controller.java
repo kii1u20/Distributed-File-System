@@ -38,6 +38,7 @@ public class Controller {
     static AtomicBoolean pendingOp = new AtomicBoolean(false);
 
     static CountDownLatch rebalanceLatch;
+    static CountDownLatch rebalanceCompleteLatch;
     static ScheduledFuture<?> rebalanceTimer;
 
     static int cport;
@@ -230,7 +231,7 @@ public class Controller {
                                         rebalanceLatch.countDown();
                                         System.out.println("Rebalance latch: " + rebalanceLatch.getCount());
                                     } else if (line.equals("REBALANCE_COMPLETE")) {
-                                        isRebalancing.set(false);
+                                        rebalanceCompleteLatch.countDown();
                                     } else {
                                         System.out.println("QUEUE!");
                                         queue.add(line);
@@ -272,7 +273,7 @@ public class Controller {
             CopyOnWriteArrayList<String> filesToDelete = new CopyOnWriteArrayList<String>();
             if (list.isEmpty()) {
                 System.out.println("No pending rebalancing for Dstore: " + ds.port);
-                isRebalancing.set(false); //TODO: Remove this
+                rebalanceCompleteLatch.countDown();
             } else {
                 PrintWriter out = new PrintWriter(ds.socket.getOutputStream(), true);
                 for (DstoreRebalance command : list) {
@@ -295,6 +296,9 @@ public class Controller {
                 System.out.println(result);
                 out.println(result);
             }
+        }
+        if (rebalanceCompleteLatch.await(timeout, TimeUnit.MILLISECONDS)) {
+            isRebalancing.set(false);
         }
     }
 
@@ -339,6 +343,7 @@ public class Controller {
         rebalance.clear();
         isRebalancing.set(true);
         rebalanceLatch = new CountDownLatch(dstores.size());
+        rebalanceCompleteLatch = new CountDownLatch(dstores.size());
         for (DstoreObject dStore : dstores.values()) {
             out = new PrintWriter(dStore.socket.getOutputStream(), true);
             out.println("LIST");
