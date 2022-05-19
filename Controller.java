@@ -62,8 +62,12 @@ public class Controller {
             Runnable runRebalance = new Runnable() {
                 public void run() {
                     try {
-                        System.out.println("Rebalancing...");
-						startRebalance();
+                        if (dstores.size() < repFactor) {
+                            System.err.println("ERROR_NOT_ENOUGH_DSTORES");
+                        } else {
+                            System.out.println("Rebalancing...");
+                            startRebalance();
+                        }
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
@@ -293,6 +297,10 @@ public class Controller {
                         result += " " + dstore.port;
                     } 
                 }
+                result += " " + filesToDelete.size();
+                for (String file : filesToDelete) {
+                    result +=  " " + file;
+                }
                 System.out.println(result);
                 out.println(result);
             }
@@ -325,10 +333,40 @@ public class Controller {
                 for (int i = file.dStore.size(); i < repFactor; i++) {
                     var store = getDstoreForStore(file.filename, targetDstores, ds);
                     targetDstores.add(store);
+                    //TODO: May need to move these to happen after REBALANCE_COMPLETE is received
                     dstoresFiles.get(store).add(file.filename);
                     file.dStore.put(store.port, store);
                 }
                 rebalance.add(new DstoreRebalance(ds, RebalanceOperation.SEND, targetDstores, file.filename));
+            }
+        }
+
+        for (DstoreObject ds : getDstoresMax()) {
+            DstoreObject dsMin = getDstoresMin().get(0);
+            int diff = dstoresFiles.get(ds).size() - dstoresFiles.get(dsMin).size();
+            while (diff >= 2) {
+                var targetDstores = new CopyOnWriteArrayList<DstoreObject>();
+                var d = getDstoreForStore(ds);
+                Index f = null;
+                for (Index file : index.values()) {
+                    if (!file.dStore.contains(d)) {
+                        f = file;
+                        break;
+                    }
+                }
+                if (d != null) {
+                    targetDstores.add(d);
+                } else {
+                    continue;
+                }
+                rebalance.add(new DstoreRebalance(ds, RebalanceOperation.SEND, targetDstores, f.filename));
+                f.dStore.put(d.port, d);
+                f.dStore.remove(ds.port);
+                dstoresFiles.get(d).add(f.filename);
+                dstoresFiles.get(ds).remove(f.filename);
+                rebalance.add(new DstoreRebalance(ds, RebalanceOperation.DELETE, null, f.filename));
+                diff = dstoresFiles.get(ds).size() - dstoresFiles.get(dsMin).size();
+                // targetDstores.clear();
             }
         }
         executeRebalance();
@@ -366,6 +404,40 @@ public class Controller {
         return result;
     }
 
+    private static CopyOnWriteArrayList<DstoreObject> getDstoresMax() {
+        CopyOnWriteArrayList<DstoreObject> returnValue = new CopyOnWriteArrayList<DstoreObject>();
+        Map<DstoreObject, CopyOnWriteArrayList<String>> sorted = dstoresFiles.entrySet().stream()
+                .sorted(comparingInt(e -> -e.getValue().size()))
+                .collect(toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (a, b) -> {
+                            throw new AssertionError();
+                        },
+                        LinkedHashMap::new));
+        for (DstoreObject dstore : sorted.keySet()) {
+            returnValue.add(dstore);
+        }
+        return returnValue;
+    }
+
+    private static CopyOnWriteArrayList<DstoreObject> getDstoresMin() {
+        CopyOnWriteArrayList<DstoreObject> returnValue = new CopyOnWriteArrayList<DstoreObject>();
+        Map<DstoreObject, CopyOnWriteArrayList<String>> sorted = dstoresFiles.entrySet().stream()
+                .sorted(comparingInt(e -> e.getValue().size()))
+                .collect(toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (a, b) -> {
+                            throw new AssertionError();
+                        },
+                        LinkedHashMap::new));
+        for (DstoreObject dstore : sorted.keySet()) {
+            returnValue.add(dstore);
+        }
+        return returnValue;
+    }
+
     private static DstoreObject getDstoreForStore(String filename) {
         DstoreObject returnValue = null;
         Map<DstoreObject, CopyOnWriteArrayList<String>> sorted = dstoresFiles.entrySet().stream()
@@ -399,6 +471,26 @@ public class Controller {
                         LinkedHashMap::new));
         for (DstoreObject dstore : sorted.keySet()) {
             if (!dstoresFiles.get(dstore).contains(filename) && !ds.contains(dstore) && !dstore.equals(dObj)) {
+                returnValue = dstore;
+                return returnValue;
+            }
+        }
+        return returnValue;
+    }
+
+    private static DstoreObject getDstoreForStore(DstoreObject dObj) {
+        DstoreObject returnValue = null;
+        Map<DstoreObject, CopyOnWriteArrayList<String>> sorted = dstoresFiles.entrySet().stream()
+                .sorted(comparingInt(e -> e.getValue().size()))
+                .collect(toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (a, b) -> {
+                            throw new AssertionError();
+                        },
+                        LinkedHashMap::new));
+        for (DstoreObject dstore : sorted.keySet()) {
+            if (!dstore.equals(dObj)) {
                 returnValue = dstore;
                 return returnValue;
             }

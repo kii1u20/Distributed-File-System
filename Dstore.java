@@ -131,6 +131,7 @@ public class Dstore {
                     ArrayList<String> sp = new ArrayList<String>(Arrays.asList(split));
                     sp.remove(0);
                     ConcurrentHashMap<String, Integer> files = new ConcurrentHashMap<String, Integer>();
+                    CopyOnWriteArrayList<String> filesToDelete = new CopyOnWriteArrayList<String>();
                     CopyOnWriteArrayList<Integer> dstores = new CopyOnWriteArrayList<Integer>();
                     var iterator = sp.iterator();
                     while (iterator.hasNext()) {
@@ -139,6 +140,11 @@ public class Dstore {
                             files.put(next, Integer.parseInt(iterator.next()));
                         } else if (next.length() >= 4) {
                             dstores.add(Integer.parseInt(next));
+                        } else {
+                            int fToDel = Integer.parseInt(next);
+                            for (int i = 0; i < fToDel; i++) {
+                                filesToDelete.add(iterator.next());
+                            }
                         }
                     }
                     var dstoresIterator = dstores.iterator();
@@ -175,7 +181,6 @@ public class Dstore {
                                         dsOut.close();
                                         inCl.close();
                                         ds.close();
-                                        out.println("REBALANCE_COMPLETE");
                                         break;
                                     } catch (Exception e) {
                                         e.printStackTrace();
@@ -184,6 +189,11 @@ public class Dstore {
                             }
                         }
                     }
+                    for (String f : filesToDelete) {
+                        File file = new File(file_folder, f);
+                        file.delete();
+                    }
+                    out.println("REBALANCE_COMPLETE");
                 }
             }
 
